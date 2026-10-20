@@ -1,8 +1,9 @@
 """Única fuente de datos agregados de SPEC-05.
 
-El resto del paquete solo consume `umbral()` y `agregados_materia()`. Cuando
-SPEC-04 esté disponible, solo cambia el cuerpo de este módulo para delegar en
-su agregación; el contrato (`ClaseAgregada`) se mantiene.
+El resto del paquete solo consume `umbral()` y `agregados_materia()`. La
+agregación de SPEC-04 vive dentro de sus rutas y no es reutilizable, por lo que
+este módulo calcula lo mismo por su cuenta; tests/test_extras.py verifica que
+ambos resultados coincidan.
 """
 from collections import defaultdict
 from dataclasses import dataclass
@@ -15,7 +16,7 @@ from sqlalchemy.orm import Session
 from app.models import Clase, Feedback
 
 
-# TEMPORAL (SPEC-04): reemplazar por la constante de umbral de SPEC-04.
+# Debe coincidir con el umbral fijo de SPEC-04 (resultados y tendencia).
 UMBRAL = 3
 
 
@@ -39,7 +40,6 @@ def umbral() -> int:
 
 def agregados_materia(db: Session, materia_id: int) -> list[ClaseAgregada]:
     """Clases de la materia ordenadas por fecha ascendente, con el umbral aplicado."""
-    # TEMPORAL (SPEC-04): consulta propia hasta que exista la agregación de SPEC-04.
     filas = db.execute(
         select(
             Clase.id, Clase.fecha, Clase.tema,

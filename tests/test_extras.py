@@ -170,11 +170,12 @@ def test_comparacion_promedio_ponderado_y_umbral(app, client, login, segunda_mat
         "materia_id": 1, "nombre": "Programación", "semestre": "2026-2",
         # (5·3 + 1·4) / 7, no el promedio de promedios (3.0).
         "promedio_general": 2.71,
-        "cantidad": 9,
+        "cantidad_respuestas": 9,
         "tendencia": [
-            {"clase_id": 1, "fecha": "2026-01-01", "promedio": 5.0, "cantidad": 3},
-            {"clase_id": 3, "fecha": "2026-02-01", "promedio": 1.0, "cantidad": 4},
-            {"clase_id": 4, "fecha": "2026-03-01", "promedio": None, "cantidad": 2},
+            {"clase_id": 1, "fecha": "2026-01-01", "promedio": 5.0, "cantidad_respuestas": 3},
+            {"clase_id": 3, "fecha": "2026-02-01", "promedio": 1.0, "cantidad_respuestas": 4},
+            # Debajo del umbral: sin clave promedio, como en SPEC-04.
+            {"clase_id": 4, "fecha": "2026-03-01", "cantidad_respuestas": 2},
         ],
     }
     assert body[1]["promedio_general"] == 4.33
@@ -183,8 +184,8 @@ def test_comparacion_promedio_ponderado_y_umbral(app, client, login, segunda_mat
 def test_comparacion_sin_clases_sobre_el_umbral(app, client, login):
     agregar_feedbacks(app, 1, [5, 4])
     [materia] = client.get("/docente/comparacion", headers=login(DOCENTE)).json()
-    assert materia["promedio_general"] is None
-    assert materia["cantidad"] == 2
+    assert "promedio_general" not in materia
+    assert materia["cantidad_respuestas"] == 2
 
 
 # --- Anonimato y acceso -------------------------------------------------------
@@ -238,7 +239,7 @@ def test_feedback_creado_y_editado_por_la_api(app, client, login):
 
     docente = login(DOCENTE)
     [materia] = client.get("/docente/comparacion", headers=docente).json()
-    assert (materia["promedio_general"], materia["cantidad"]) == (4.0, 3)
+    assert (materia["promedio_general"], materia["cantidad_respuestas"]) == (4.0, 3)
     _, filas = leer_csv(client.get("/docente/materias/1/comentarios.csv", headers=docente))
     assert [f[2] for f in filas[1:]] == ["Ejemplos", "Pizarrón ordenado"]
 
@@ -250,3 +251,31 @@ def test_feedback_creado_y_editado_por_la_api(app, client, login):
     assert "pizarrón" not in palabras and "proyector" in palabras
     [materia] = client.get("/docente/comparacion", headers=docente).json()
     assert materia["promedio_general"] == 3.0
+
+
+# --- Consistencia con SPEC-04 ---------------------------------------------------
+
+def test_coincide_con_la_vista_de_spec04(app, client, login):
+    # app/extras/fuente.py calcula por su cuenta: debe dar lo mismo que SPEC-04.
+    agregar_clase(app, 3, date(2026, 2, 1))
+    agregar_clase(app, 4, date(2026, 3, 1))
+    agregar_clase(app, 5, date(2026, 4, 1))
+    agregar_feedbacks(app, 1, [(5, "  Muy clara  ", "   "), (4, "", "Rápido"), 2, (3, "Ejemplos")])
+    agregar_feedbacks(app, 3, [(4, "Oculto"), (5, "Oculto")], primer_alumno=2001)
+    agregar_feedbacks(app, 4, [(1, "Zeta"), (2, "Alfa", "Beta"), 3], primer_alumno=3001)
+    docente = login(DOCENTE)
+
+    [materia] = client.get("/docente/comparacion", headers=docente).json()
+    assert materia["tendencia"] == client.get("/docente/materias/1/tendencia", headers=docente).json()
+
+    _, filas = leer_csv(client.get("/docente/materias/1/comentarios.csv", headers=docente))
+    for punto in materia["tendencia"]:
+        resultados = client.get(f"/docente/materias/1/clases/{punto['clase_id']}/resultados",
+                                headers=docente).json()
+        assert resultados.get("promedio") == punto.get("promedio")
+        # SPEC-04 conserva textos en blanco y espacios; SPEC-05 los descarta.
+        textos_spec04 = sorted(
+            texto.strip() for c in resultados.get("comentarios", [])
+            for texto in (c.get("gusto"), c.get("no_gusto")) if texto and texto.strip()
+        )
+        assert sorted(f[2] for f in filas[1:] if f[1] == punto["fecha"]) == textos_spec04

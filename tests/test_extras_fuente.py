@@ -1,5 +1,4 @@
-"""Contrato de app.extras.fuente. Deben seguir pasando cuando la fuente
-delegue en la agregación de SPEC-04."""
+"""Contrato de app.extras.fuente, la fuente de datos agregados de SPEC-05."""
 from dataclasses import fields
 from datetime import date
 

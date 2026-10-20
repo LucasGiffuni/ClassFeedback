@@ -1,6 +1,5 @@
 import csv
 import io
-from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -13,24 +12,18 @@ from app.database import get_db
 from app.extras.fuente import ClaseAgregada, agregados_materia
 from app.extras.palabras import palabras_frecuentes
 from app.models import DocenteMateria, Materia
+from app.schemas import PuntoTendenciaOutput
 
 
-# Modelos de respuesta propios: nunca reutilizar FeedbackOutput, que expone
-# alumno_id y timestamps.
-class TendenciaOutput(BaseModel):
-    clase_id: int
-    fecha: date
-    promedio: Optional[float]
-    cantidad: int
-
-
+# Nunca reutilizar FeedbackOutput, que expone alumno_id y timestamps. La
+# tendencia usa el mismo modelo que SPEC-04.
 class ComparacionOutput(BaseModel):
     materia_id: int
     nombre: str
     semestre: str
-    promedio_general: Optional[float]
-    cantidad: int
-    tendencia: list[TendenciaOutput]
+    cantidad_respuestas: int
+    promedio_general: Optional[float] = None
+    tendencia: list[PuntoTendenciaOutput]
 
 
 class PalabraOutput(BaseModel):
@@ -81,7 +74,8 @@ def respuesta_csv(nombre: str, encabezado: list[str], filas: list[list]) -> Resp
 router = APIRouter(prefix="/docente", dependencies=[Depends(require_docente)])
 
 
-@router.get("/comparacion", response_model=list[ComparacionOutput])
+# Como en SPEC-04, los promedios debajo del umbral se omiten en lugar de ser null.
+@router.get("/comparacion", response_model=list[ComparacionOutput], response_model_exclude_none=True)
 def comparacion(
     semestre: Optional[str] = Query(default=None, max_length=30),
     user: Principal = Depends(current_user),
@@ -101,11 +95,11 @@ def comparacion(
             materia_id=materia.id,
             nombre=materia.nombre,
             semestre=materia.semestre,
+            cantidad_respuestas=sum(c.cantidad for c in clases),
             promedio_general=redondear(promedio_general(clases)),
-            cantidad=sum(c.cantidad for c in clases),
             tendencia=[
-                TendenciaOutput(clase_id=c.clase_id, fecha=c.fecha,
-                               promedio=redondear(c.promedio), cantidad=c.cantidad)
+                PuntoTendenciaOutput(clase_id=c.clase_id, fecha=c.fecha,
+                                     cantidad_respuestas=c.cantidad, promedio=redondear(c.promedio))
                 for c in clases
             ],
         ))
