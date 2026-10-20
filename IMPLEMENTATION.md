@@ -47,6 +47,16 @@ curl -X POST http://127.0.0.1:8000/auth/logout -H "Authorization: Bearer $TOKEN"
 
 `POST /auth/login` es la única excepción al requisito de sesión: permite obtenerla. El middleware devuelve **401** antes del routing o la validación si falta el token, es inválido, expiró o fue revocado, incluso para rutas desconocidas. Las rutas de documentación están deshabilitadas. Un ALUMNO recibe **403** en las rutas de docente. Una materia ajena o inexistente devuelve **404** con el mismo mensaje.
 
+### Feedback del alumno (SPEC-03)
+
+| Método | Ruta | Acceso |
+| --- | --- | --- |
+| POST | `/clases/{clase_id}/feedback` | Solo ALUMNO inscripto en la materia; body `{gusto?, no_gusto?, calificacion}`; devuelve 201 |
+| GET | `/clases/{clase_id}/feedback` | Solo ALUMNO inscripto; devuelve únicamente su feedback |
+| PUT | `/feedback/{feedback_id}` | Solo el alumno propietario; permitido hasta 48 horas desde `creado_en` |
+
+Los textos son opcionales y tienen un máximo de 500 caracteres. `calificacion` es obligatoria y debe estar entre 1 y 5; los errores de validación devuelven 422. Un segundo POST para la misma clase y alumno devuelve 409. Las clases futuras no admiten feedback (422). Un feedback ajeno se responde como 404 y, una vez vencidas las 48 horas, la edición responde 403 con un mensaje explícito.
+
 Las contraseñas se almacenan con PBKDF2-HMAC-SHA256, salt aleatorio y 600.000 iteraciones. Las sesiones usan tokens aleatorios de 256 bits y solo se guarda su hash SHA-256. El usuario y su rol se consultan en cada request; la pertenencia se consulta en cada acceso a una materia. No existe un endpoint público de registro o modificación de roles.
 
 ## Guards reutilizables y esquema

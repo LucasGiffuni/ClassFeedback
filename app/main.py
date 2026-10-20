@@ -1,17 +1,22 @@
 import secrets
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.auth import (
-    AuthenticationMiddleware, Principal, current_user, require_docente, require_materia,
+    AuthenticationMiddleware, Principal, current_user, require_alumno,
+    require_docente, require_feedback_clase, require_materia,
 )
 from app.config import Settings
 from app.database import build_engine, get_db
 from app.models import Clase, DocenteMateria, Feedback, Inscripcion, Materia, Rol, Sesion, Usuario, utcnow
-from app.schemas import ClaseInput, ClaseOutput, LoginInput, MateriaOutput, TokenOutput, UsuarioOutput
+from app.schemas import (
+    ClaseInput, ClaseOutput, FeedbackInput, FeedbackOutput, LoginInput, MateriaOutput,
+    TokenOutput, UsuarioOutput,
+)
 from app.security import hash_password, hash_token, verify_password
 
 
@@ -114,6 +119,66 @@ def create_app(settings: Settings = None) -> FastAPI:
         db.add(clase)
         db.commit()
         return clase
+
+    @app.post("/clases/{clase_id}/feedback", response_model=FeedbackOutput, status_code=201)
+    def crear_feedback(
+        body: FeedbackInput,
+        clase: Clase = Depends(require_feedback_clase),
+        user: Principal = Depends(require_alumno),
+        db: Session = Depends(get_db),
+    ):
+        if clase.fecha > utcnow().date():
+            raise HTTPException(status_code=422, detail="La clase todavía no ocurrió")
+        if db.scalar(select(Feedback).where(
+            Feedback.clase_id == clase.id, Feedback.alumno_id == user.id
+        )) is not None:
+            raise HTTPException(status_code=409, detail="Ya existe feedback para esta clase")
+        feedback = Feedback(clase_id=clase.id, alumno_id=user.id, **body.model_dump())
+        db.add(feedback)
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise HTTPException(status_code=409, detail="Ya existe feedback para esta clase")
+        db.refresh(feedback)
+        return feedback
+
+    @app.get("/clases/{clase_id}/feedback", response_model=FeedbackOutput)
+    def ver_feedback(
+        clase: Clase = Depends(require_feedback_clase),
+        user: Principal = Depends(require_alumno),
+        db: Session = Depends(get_db),
+    ):
+        feedback = db.scalar(select(Feedback).where(
+            Feedback.clase_id == clase.id, Feedback.alumno_id == user.id
+        ))
+        if feedback is None:
+            raise HTTPException(status_code=404, detail="Feedback no encontrado")
+        return feedback
+
+    @app.put("/feedback/{feedback_id}", response_model=FeedbackOutput)
+    def editar_feedback(
+        body: FeedbackInput,
+        feedback_id: int,
+        user: Principal = Depends(require_alumno),
+        db: Session = Depends(get_db),
+    ):
+        feedback = db.get(Feedback, feedback_id)
+        if feedback is None or feedback.alumno_id != user.id:
+            raise HTTPException(status_code=404, detail="Feedback no encontrado")
+        creado_en = feedback.creado_en
+        if creado_en.tzinfo is None:
+            creado_en = creado_en.replace(tzinfo=timezone.utc)
+        if utcnow() - creado_en > timedelta(hours=48):
+            raise HTTPException(
+                status_code=403,
+                detail="El plazo para editar el feedback (48 horas) ya expiró",
+            )
+        for field, value in body.model_dump().items():
+            setattr(feedback, field, value)
+        db.commit()
+        db.refresh(feedback)
+        return feedback
 
     app.include_router(docente)
     return app
