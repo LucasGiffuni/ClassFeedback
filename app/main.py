@@ -10,8 +10,8 @@ from app.auth import (
 )
 from app.config import Settings
 from app.database import build_engine, get_db
-from app.models import DocenteMateria, Inscripcion, Materia, Rol, Sesion, Usuario, utcnow
-from app.schemas import LoginInput, MateriaOutput, TokenOutput, UsuarioOutput
+from app.models import Clase, DocenteMateria, Feedback, Inscripcion, Materia, Rol, Sesion, Usuario, utcnow
+from app.schemas import ClaseInput, ClaseOutput, LoginInput, MateriaOutput, TokenOutput, UsuarioOutput
 from app.security import hash_password, hash_token, verify_password
 
 
@@ -70,6 +70,26 @@ def create_app(settings: Settings = None) -> FastAPI:
     def materia(materia: Materia = Depends(require_materia)):
         return materia
 
+    @app.get("/materias/{materia_id}/clases", response_model=list[ClaseOutput],
+             response_model_exclude_none=True)
+    def clases(
+        materia: Materia = Depends(require_materia),
+        user: Principal = Depends(current_user),
+        db: Session = Depends(get_db),
+    ):
+        query = select(Clase).where(Clase.materia_id == materia.id)
+        query = query.order_by(Clase.fecha.desc(), Clase.id.desc())
+        if user.rol == Rol.DOCENTE:
+            return db.scalars(query).all()
+        sent = set(db.scalars(
+            select(Feedback.clase_id).where(Feedback.alumno_id == user.id)
+        ))
+        return [
+            ClaseOutput.model_validate(c).model_copy(
+                update={"feedback": "enviado" if c.id in sent else "pendiente"})
+            for c in db.scalars(query)
+        ]
+
     docente = APIRouter(prefix="/docente", dependencies=[Depends(require_docente)])
 
     @docente.get("/materias", response_model=list[MateriaOutput])
@@ -79,6 +99,21 @@ def create_app(settings: Settings = None) -> FastAPI:
     @docente.get("/materias/{materia_id}", response_model=MateriaOutput)
     def docente_materia(materia: Materia = Depends(require_materia)):
         return materia
+
+    @docente.post("/materias/{materia_id}/clases", response_model=ClaseOutput,
+                  response_model_exclude_none=True, status_code=201)
+    def crear_clase(
+        body: ClaseInput,
+        materia: Materia = Depends(require_materia),
+        db: Session = Depends(get_db),
+    ):
+        # La clase debe haber ocurrido para admitir feedback.
+        if body.fecha > utcnow().date():
+            raise HTTPException(status_code=422, detail="La fecha de la clase no puede ser futura")
+        clase = Clase(materia_id=materia.id, fecha=body.fecha, tema=body.tema)
+        db.add(clase)
+        db.commit()
+        return clase
 
     app.include_router(docente)
     return app
