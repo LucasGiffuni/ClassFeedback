@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,3 +48,22 @@ class ClaseOutput(BaseModel):
     tema: Optional[str]
     # Solo para alumnos: estado de SU feedback. Se omite para docentes.
     feedback: Optional[str] = None
+
+
+class FeedbackInput(BaseModel):
+    gusto: Optional[str] = Field(default=None, max_length=500)
+    no_gusto: Optional[str] = Field(default=None, max_length=500)
+    calificacion: int = Field(ge=1, le=5)
+
+
+class FeedbackOutput(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    clase_id: int
+    alumno_id: int
+    gusto: Optional[str]
+    no_gusto: Optional[str]
+    calificacion: int
+    creado_en: datetime
+    editado_en: datetime

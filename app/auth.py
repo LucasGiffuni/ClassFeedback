@@ -101,3 +101,23 @@ def require_clase(
         raise HTTPException(status_code=404, detail="Clase no encontrada")
     authorize_materia(db, user, clase.materia_id)
     return clase
+
+
+def require_feedback_clase(
+    clase_id: int,
+    user: Principal = Depends(current_user),
+    db: Session = Depends(get_db),
+) -> Clase:
+    clase = db.get(Clase, clase_id)
+    if clase is None:
+        raise HTTPException(status_code=404, detail="Clase no encontrada")
+    if user.rol != Rol.ALUMNO:
+        authorize_materia(db, user, clase.materia_id)
+        return clase
+    enrolled = db.scalar(select(Inscripcion).where(
+        Inscripcion.alumno_id == user.id,
+        Inscripcion.materia_id == clase.materia_id,
+    ))
+    if enrolled is None:
+        raise HTTPException(status_code=403, detail="El alumno no está inscripto en la materia")
+    return clase
