@@ -2,7 +2,7 @@ import secrets
 from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Request, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -15,8 +15,10 @@ from app.database import build_engine, get_db
 from app.extras import reportes
 from app.models import Clase, DocenteMateria, Feedback, Inscripcion, Materia, Rol, Sesion, Usuario, utcnow
 from app.schemas import (
-    ClaseInput, ClaseOutput, FeedbackInput, FeedbackOutput, LoginInput, MateriaOutput,
-    TokenOutput, UsuarioOutput,
+    ClaseInput, ClaseOutput, FeedbackInput, FeedbackOutput,
+    LoginInput, MateriaOutput, TokenOutput, UsuarioOutput,
+    ComentarioAnonimoOutput, ResultadoClaseOutput,
+    PuntoTendenciaOutput,
 )
 from app.security import hash_password, hash_token, verify_password
 
@@ -120,6 +122,137 @@ def create_app(settings: Settings = None) -> FastAPI:
         db.add(clase)
         db.commit()
         return clase
+
+    
+    @docente.get(
+        "/materias/{materia_id}/clases/{clase_id}/resultados",
+        response_model=ResultadoClaseOutput,
+        response_model_exclude_none=True,
+    )
+    def resultados_clase(
+        clase_id: int,
+        materia: Materia = Depends(require_materia),
+        db: Session = Depends(get_db),
+    ):
+        # Comprobar que la clase pertenece a la materia solicitada.
+        clase = db.scalar(
+            select(Clase).where(
+                Clase.id == clase_id,
+                Clase.materia_id == materia.id,
+            )
+        )
+        if clase is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Clase no encontrada",
+            )
+
+        # Obtener solamente los datos necesarios para el agregado.
+        filas = db.execute(
+            select(
+                Feedback.gusto,
+                Feedback.no_gusto,
+                Feedback.calificacion,
+            ).where(Feedback.clase_id == clase.id)
+        ).all()
+
+        cantidad = len(filas)
+
+        # La distribución siempre se muestra, de 1 a 5.
+        distribucion = {
+            nota: sum(1 for fila in filas if fila.calificacion == nota)
+            for nota in range(1, 6)
+        }
+
+        # No exponer promedio ni comentarios con menos de 3 respuestas.
+        if cantidad < 3:
+            return ResultadoClaseOutput(
+                clase_id=clase.id,
+                fecha=clase.fecha,
+                cantidad_respuestas=cantidad,
+                distribucion=distribucion,
+                promedio=None,
+                comentarios=None,
+            )
+
+        # Preparar comentarios sin autor ni marcas de tiempo.
+        comentarios = [
+            ComentarioAnonimoOutput(
+                gusto=fila.gusto,
+                no_gusto=fila.no_gusto,
+            )
+            for fila in filas
+            if fila.gusto or fila.no_gusto
+        ]
+
+        # Orden alfabético para evitar revelar el orden cronológico.
+        comentarios.sort(
+            key=lambda c: (
+                (c.gusto or "").casefold(),
+                (c.no_gusto or "").casefold(),
+            )
+        )
+
+        promedio = round(
+            sum(fila.calificacion for fila in filas) / cantidad,
+            2,
+        )
+
+        return ResultadoClaseOutput(
+            clase_id=clase.id,
+            fecha=clase.fecha,
+            cantidad_respuestas=cantidad,
+            promedio=promedio,
+            distribucion=distribucion,
+            comentarios=comentarios,
+        )
+
+    
+    @docente.get(
+        "/materias/{materia_id}/tendencia",
+        response_model=list[PuntoTendenciaOutput],
+        response_model_exclude_none=True,
+    )
+    def tendencia_materia(
+        materia: Materia = Depends(require_materia),
+        db: Session = Depends(get_db),
+    ):
+        # Consultar todas las clases de la materia y agregar sus feedbacks.
+        filas = db.execute(
+            select(
+                Clase.id,
+                Clase.fecha,
+                func.count(Feedback.id).label("cantidad"),
+                func.avg(Feedback.calificacion).label("promedio"),
+            )
+            .outerjoin(Feedback, Feedback.clase_id == Clase.id)
+            .where(Clase.materia_id == materia.id)
+            .group_by(Clase.id, Clase.fecha)
+            .order_by(Clase.fecha.asc(), Clase.id.asc())
+        ).all()
+
+        resultado = []
+
+        for fila in filas:
+            cantidad = fila.cantidad
+
+            # Aplicar el mismo umbral de anonimato que en los resultados.
+            promedio = (
+                round(float(fila.promedio), 2)
+                if cantidad >= 3
+                else None
+            )
+
+            resultado.append(
+                PuntoTendenciaOutput(
+                    clase_id=fila.id,
+                    fecha=fila.fecha,
+                    cantidad_respuestas=cantidad,
+                    promedio=promedio,
+                )
+            )
+
+        return resultado
 
     @app.post("/clases/{clase_id}/feedback", response_model=FeedbackOutput, status_code=201)
     def crear_feedback(
