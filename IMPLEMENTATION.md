@@ -57,6 +57,30 @@ curl -X POST http://127.0.0.1:8000/auth/logout -H "Authorization: Bearer $TOKEN"
 
 Los textos son opcionales y tienen un máximo de 500 caracteres. `calificacion` es obligatoria y debe estar entre 1 y 5; los errores de validación devuelven 422. Un segundo POST para la misma clase y alumno devuelve 409. Las clases futuras no admiten feedback (422). Un feedback ajeno se responde como 404 y, una vez vencidas las 48 horas, la edición responde 403 con un mensaje explícito.
 
+### Extras del docente (SPEC-05)
+
+| Método | Ruta | Acceso |
+| --- | --- | --- |
+| GET | `/docente/comparacion?semestre=` | Solo DOCENTE; sus materias lado a lado con `cantidad_respuestas`, `promedio_general` y `tendencia`. `semestre` es opcional |
+| GET | `/docente/materias/{materia_id}/resumen.csv` | Solo DOCENTE y materia que dicta; columnas `clase, fecha, promedio, cantidad` |
+| GET | `/docente/materias/{materia_id}/comentarios.csv` | Solo DOCENTE y materia que dicta; columnas `clase, fecha, comentario` |
+| GET | `/docente/materias/{materia_id}/palabras?clase_id=` | Solo DOCENTE y materia que dicta; top 20 `{palabra, cantidad}` de la materia o de una de sus clases (otra clase: 404) |
+
+Se aplica el umbral de anonimato k = 3: una clase con menos feedbacks muestra la cantidad, pero no promedio, comentarios ni palabras. Como en SPEC-04, los promedios debajo del umbral se omiten de la respuesta; la `tendencia` usa el mismo formato que `/docente/materias/{materia_id}/tendencia`. El `promedio_general` se pondera por respuestas y solo usa clases que pasan el umbral, para que no se pueda deducir el promedio de una clase oculta por diferencia. Ninguna respuesta incluye IDs, emails ni timestamps de alumnos.
+
+En `resumen.csv`, `clase` es el tema o `Clase del {fecha}` y `promedio` queda vacío debajo del umbral. `comentarios.csv` lista los textos de `gusto` y `no_gusto` sin autor, en orden alfabético por clase, descartando textos en blanco. Los CSV se descargan como adjunto en UTF-8 con BOM (para Excel) y `Cache-Control: no-store`; las celdas que empiezan con `=`, `+`, `-` o `@` llevan un `'` delante para que la planilla no las ejecute como fórmula.
+
+Las palabras se cuentan en minúsculas sobre `gusto` y `no_gusto`, con al menos 2 letras y sin números, ignorando las stopwords de `app/extras/stopwords_es.py` sin distinguir tildes ("qué" = "que"). Los empates se ordenan alfabéticamente.
+
+```bash
+curl http://127.0.0.1:8000/docente/comparacion -H "Authorization: Bearer $TOKEN"
+curl -OJ http://127.0.0.1:8000/docente/materias/1/resumen.csv -H "Authorization: Bearer $TOKEN"
+curl -OJ http://127.0.0.1:8000/docente/materias/1/comentarios.csv -H "Authorization: Bearer $TOKEN"
+curl "http://127.0.0.1:8000/docente/materias/1/palabras?clase_id=1" -H "Authorization: Bearer $TOKEN"
+```
+
+El código está en `app/extras/`. Todos los datos agregados salen de `fuente.py` (`ClaseAgregada`, `umbral()`, `agregados_materia()`), que aplica el umbral antes de devolver nada. La agregación de SPEC-04 está dentro de sus rutas y no es reutilizable, por lo que `fuente.py` hace su propio cálculo; un test verifica que tendencia, promedios y comentarios coincidan con los de SPEC-04, así que un cambio en uno de los dos que no se replique en el otro hace fallar las pruebas. SPEC-05 no modifica el esquema ni agrega migraciones.
+
 Las contraseñas se almacenan con PBKDF2-HMAC-SHA256, salt aleatorio y 600.000 iteraciones. Las sesiones usan tokens aleatorios de 256 bits y solo se guarda su hash SHA-256. El usuario y su rol se consultan en cada request; la pertenencia se consulta en cada acceso a una materia. No existe un endpoint público de registro o modificación de roles.
 
 ## Guards reutilizables y esquema
@@ -76,3 +100,5 @@ python -m pytest -q
 ```
 
 Las pruebas crean una base temporal con la migración real. Cubren los tres criterios de aceptación, inscripción de alumnos, guards de clase, cambios de rol y pertenencia durante una sesión, credenciales inválidas, expiración, logout, almacenamiento del hash del token, unicidad y constraints de feedback. También verifican que la migración coincide con los modelos y que se puede revertir y reaplicar.
+
+Las pruebas de SPEC-05 están en `tests/test_extras.py` y `tests/test_extras_fuente.py` (contrato de `fuente.py`), con datos de `tests/datos_extras.py`. Cubren sus tres criterios de aceptación, el umbral, el anonimato de las respuestas JSON y CSV, el escape de fórmulas, el acceso por rol y materia, la integración con el feedback de SPEC-03 y la consistencia con SPEC-04.
