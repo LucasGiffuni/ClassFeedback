@@ -47,7 +47,7 @@ def test_csv_resumen_sin_ids_ni_emails_de_alumnos(app, client, login):
     ids += agregar_feedbacks(app, 3, [1, 2], primer_alumno=2001)
     docente = login(DOCENTE)
 
-    texto, filas = leer_csv(client.get("/docente/materias/1/export.csv", headers=docente))
+    texto, filas = leer_csv(client.get("/docente/materias/1/resumen.csv", headers=docente))
     assert filas == [
         ["clase", "fecha", "promedio", "cantidad"],
         ["Clase del 2026-01-01", "2026-01-01", "4.0", "3"],
@@ -201,7 +201,7 @@ def test_respuestas_json_sin_campos_identificatorios(app, client, login):
 
 RUTAS_SPEC05 = [
     "/docente/comparacion",
-    "/docente/materias/1/export.csv",
+    "/docente/materias/1/resumen.csv",
     "/docente/materias/1/comentarios.csv",
     "/docente/materias/1/palabras",
 ]

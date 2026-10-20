@@ -17,23 +17,23 @@ from app.models import DocenteMateria, Materia
 
 # Modelos de respuesta propios: nunca reutilizar FeedbackOutput, que expone
 # alumno_id y timestamps.
-class PuntoTendencia(BaseModel):
+class TendenciaOutput(BaseModel):
     clase_id: int
     fecha: date
     promedio: Optional[float]
     cantidad: int
 
 
-class ComparacionMateria(BaseModel):
+class ComparacionOutput(BaseModel):
     materia_id: int
     nombre: str
     semestre: str
     promedio_general: Optional[float]
     cantidad: int
-    tendencia: list[PuntoTendencia]
+    tendencia: list[TendenciaOutput]
 
 
-class PalabraFrecuente(BaseModel):
+class PalabraOutput(BaseModel):
     palabra: str
     cantidad: int
 
@@ -81,7 +81,7 @@ def respuesta_csv(nombre: str, encabezado: list[str], filas: list[list]) -> Resp
 router = APIRouter(prefix="/docente", dependencies=[Depends(require_docente)])
 
 
-@router.get("/comparacion", response_model=list[ComparacionMateria])
+@router.get("/comparacion", response_model=list[ComparacionOutput])
 def comparacion(
     semestre: Optional[str] = Query(default=None, max_length=30),
     user: Principal = Depends(current_user),
@@ -97,14 +97,14 @@ def comparacion(
     resultado = []
     for materia in db.scalars(query):
         clases = agregados_materia(db, materia.id)
-        resultado.append(ComparacionMateria(
+        resultado.append(ComparacionOutput(
             materia_id=materia.id,
             nombre=materia.nombre,
             semestre=materia.semestre,
             promedio_general=redondear(promedio_general(clases)),
             cantidad=sum(c.cantidad for c in clases),
             tendencia=[
-                PuntoTendencia(clase_id=c.clase_id, fecha=c.fecha,
+                TendenciaOutput(clase_id=c.clase_id, fecha=c.fecha,
                                promedio=redondear(c.promedio), cantidad=c.cantidad)
                 for c in clases
             ],
@@ -112,7 +112,7 @@ def comparacion(
     return resultado
 
 
-@router.get("/materias/{materia_id}/export.csv")
+@router.get("/materias/{materia_id}/resumen.csv")
 def exportar_resumen(materia: Materia = Depends(require_materia), db: Session = Depends(get_db)):
     filas = [
         [etiqueta(c), c.fecha.isoformat(), redondear(c.promedio), c.cantidad]
@@ -133,7 +133,7 @@ def exportar_comentarios(materia: Materia = Depends(require_materia), db: Sessio
                          ["clase", "fecha", "comentario"], filas)
 
 
-@router.get("/materias/{materia_id}/palabras", response_model=list[PalabraFrecuente])
+@router.get("/materias/{materia_id}/palabras", response_model=list[PalabraOutput])
 def palabras(
     clase_id: Optional[int] = None,
     materia: Materia = Depends(require_materia),
@@ -146,4 +146,4 @@ def palabras(
             raise HTTPException(status_code=404, detail="Clase no encontrada")
     # Los comentarios ya vienen filtrados por umbral desde la fuente.
     textos = (texto for c in clases for texto in c.comentarios)
-    return [PalabraFrecuente(palabra=p, cantidad=n) for p, n in palabras_frecuentes(textos)]
+    return [PalabraOutput(palabra=p, cantidad=n) for p, n in palabras_frecuentes(textos)]
