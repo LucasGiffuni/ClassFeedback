@@ -42,6 +42,8 @@ curl -X POST http://127.0.0.1:8000/auth/logout -H "Authorization: Bearer $TOKEN"
 | GET | `/materias/{materia_id}` | Solo materia propia |
 | GET | `/docente/materias` | Solo DOCENTE; materias que dicta |
 | GET | `/docente/materias/{materia_id}` | Solo DOCENTE y materia que dicta |
+| GET | `/materias/{materia_id}/clases` | Solo materia propia; clases por fecha descendente. El alumno ve `feedback`: `pendiente` o `enviado`; el docente no |
+| POST | `/docente/materias/{materia_id}/clases` | Solo DOCENTE y materia que dicta; body `{fecha, tema?}`; devuelve 201, o 422 si la fecha es futura |
 
 `POST /auth/login` es la única excepción al requisito de sesión: permite obtenerla. El middleware devuelve **401** antes del routing o la validación si falta el token, es inválido, expiró o fue revocado, incluso para rutas desconocidas. Las rutas de documentación están deshabilitadas. Un ALUMNO recibe **403** en las rutas de docente. Una materia ajena o inexistente devuelve **404** con el mismo mensaje.
 
