@@ -67,3 +67,24 @@ class FeedbackOutput(BaseModel):
     calificacion: int
     creado_en: datetime
     editado_en: datetime
+
+
+class ComentarioAnonimoOutput(BaseModel):
+    gusto: Optional[str] = None
+    no_gusto: Optional[str] = None
+
+
+class ResultadoClaseOutput(BaseModel):
+    clase_id: int
+    fecha: date
+    cantidad_respuestas: int
+    promedio: Optional[float] = None
+    distribucion: dict[int, int]
+    comentarios: Optional[list[ComentarioAnonimoOutput]] = None
+
+
+class PuntoTendenciaOutput(BaseModel):
+    clase_id: int
+    fecha: date
+    cantidad_respuestas: int
+    promedio: Optional[float] = None
