@@ -1,5 +1,7 @@
 SPEC-01: Base: modelo de datos, auth y roles
 
+Implementación: ver [instalación, API y pruebas](IMPLEMENTATION.md).
+
 Objetivo: cimientos para que el resto de las specs no toque esquema ni permisos.
 
 Entidades:
