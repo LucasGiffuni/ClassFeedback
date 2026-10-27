@@ -14,6 +14,8 @@ from app.security import hash_token
     ("GET", "/materias/1"), ("GET", "/docente/materias"),
     ("GET", "/docente/materias/1"), ("GET", "/materias/no-es-un-id"),
     ("GET", "/ruta-inexistente"), ("GET", "/docs"), ("GET", "/openapi.json"),
+    ("GET", "/docente/comparacion"), ("GET", "/docente/materias/1/resumen.csv"),
+    ("GET", "/docente/materias/1/comentarios.csv"), ("GET", "/docente/materias/1/palabras"),
 ])
 def test_no_session_is_always_401(client, method, path):
     response = client.request(method, path)

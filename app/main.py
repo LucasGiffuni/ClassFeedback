@@ -12,6 +12,7 @@ from app.auth import (
 )
 from app.config import Settings
 from app.database import build_engine, get_db
+from app.extras import reportes
 from app.models import Clase, DocenteMateria, Feedback, Inscripcion, Materia, Rol, Sesion, Usuario, utcnow
 from app.schemas import (
     ClaseInput, ClaseOutput, FeedbackInput, FeedbackOutput,
@@ -314,6 +315,7 @@ def create_app(settings: Settings = None) -> FastAPI:
         return feedback
 
     app.include_router(docente)
+    app.include_router(reportes.router)
     return app
 
 
